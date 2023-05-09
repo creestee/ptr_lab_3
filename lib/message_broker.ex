@@ -3,7 +3,7 @@ defmodule MessageBroker do
   use Application
 
   def start(_type, _args) do
-    # Connection.start(8080)
+    SubscriberHandler.start()
 		{:ok, self()}
   end
 end

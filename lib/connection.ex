@@ -16,46 +16,62 @@ defmodule Connection do
 
   def handle_info(:accept, %{socket: socket} = state) do
     {:ok, _} = :gen_tcp.accept(socket)
-
     Logger.info("Client connected")
     {:noreply, state}
   end
 
-  def handle_info({:tcp, socket, data}, state) do
-    Logger.info("Received #{data}")
+  def handle_info({:tcp, socket, data_received}, state) do
+    Logger.info("Received #{data_received}")
 
-    [first_token | arguments] =
-      String.trim(data)
+    [first_token | data] =
+      String.trim(data_received)
       |> String.split(" ")
 
-    case first_token do
-      "create" ->
-        Logger.debug("create command")
+    Logger.info(data)
 
-        [client_type | tail] = arguments
-        [name | topic] = tail
+    case first_token do
+      "send" ->
+        Logger.debug("-- TRYING TO SEND A MESSAGE --")
+
+        [topic, message] =
+          data
+          |> Enum.join("")
+          |> String.split("%")
 
         cond do
-          client_type == "publisher" ->
-            Publisher.start(name, topic)
-
-          client_type == "subscriber" ->
-            Subscriber.start(name, topic)
+          is_nil(Process.whereis(:"#{topic}")) ->
+            Topic.start(topic)
+            Topic.send_message(message, topic)
 
           true ->
-            Logger.debug("UNKNOWN CLIENT TYPE")
-            :gen_tcp.send(socket, "UNKNOWN CLIENT TYPE\n")
+            Topic.send_message(message, topic)
         end
 
-      # :gen_tcp.send(socket, "#{arguments}\n")
+      "subscribe" ->
+        Logger.debug("-- CONSUMING --")
+
+        topic =
+          data
+          |> Enum.join("")
+          |> String.to_atom()
+
+        topics_map = SubscriberHandler.get_topics()
+
+        if !Map.has_key?(topics_map, topic),
+          do: SubscriberHandler.new_topic(topic)
+
+        {:ok, pid} = Subscriber.start(topic)
+
+        SubscriberHandler.update_topic_pids(topic, pid)
 
       "quit" ->
         Logger.debug("some quit command")
-        :gen_tcp.send(socket, "#{arguments}\n")
+        :gen_tcp.send(socket, "#{data_received}\r\n")
+        Process.exit(self(), :kill)
 
       _ ->
         Logger.debug("Unknown command: #{inspect(data)}")
-        :gen_tcp.send(socket, "unknown command\n")
+        :gen_tcp.send(socket, "unknown command\r\n")
     end
 
     {:noreply, state}

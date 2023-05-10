@@ -26,8 +26,6 @@ defmodule Connection do
 
   @impl true
   def handle_info({:tcp, socket, data_received}, state) do
-    # Logger.info("Received #{data_received}")
-
     [first_token | data] =
       String.trim(data_received)
       |> String.split(" ")
@@ -38,45 +36,29 @@ defmodule Connection do
           data
           |> Enum.join("")
 
-        {role, role_pid} = handle_new_actor(client_type)
+        {client, client_pid} = handle_new_actor(client_type)
 
-        {:noreply, Map.put(state, :client_type, {role, role_pid})}
+        {:noreply, Map.put(state, :client_type, {client, client_pid})}
 
       "send" ->
-        {role, _} = Map.get(state, :client_type)
+        {client, pid} = Map.get(state, :client_type)
 
-        if role !== :publisher do
-          Logger.info("NOT A PUBLISHER")
-          :gen_tcp.send(socket, "YOU ARE NOT A PUBLISHER\r\n")
-          {:noreply, state}
-        else
-          [topic, message] =
-            data
-            |> Enum.join("")
-            |> String.split("%")
+        cond do
+          client !== :publisher ->
+            Logger.info("NOT A PUBLISHER")
+            :gen_tcp.send(socket, "YOU ARE NOT A PUBLISHER\r\n")
+            {:noreply, state}
 
-          cond do
-            is_nil(Process.whereis(:"#{topic}")) ->
-              Topic.start(topic)
-              Topic.send_message(message, topic)
-
-            true ->
-              Topic.send_message(message, topic)
-          end
-
-          {:noreply, state}
+          true ->
+            Publisher.send_to_topic(pid, data)
+            {:noreply, state}
         end
 
       "subscribe" ->
-        {role, pid} = Map.get(state, :client_type)
-
-        topic =
-          data
-          |> Enum.join("")
-          |> String.to_atom()
+        {client, pid} = Map.get(state, :client_type)
 
         cond do
-          role !== :subscriber ->
+          client !== :subscriber ->
             Logger.info("NOT A SUBSCRIBER")
             :gen_tcp.send(socket, "YOU ARE NOT A SUBSCRIBER\r\n")
             {:noreply, state}
@@ -84,17 +66,7 @@ defmodule Connection do
           # TODO: add condition to check if the topic exists
 
           true ->
-            topics_map = SubscriberHandler.get_topics()
-
-            if !Map.has_key?(topics_map, topic) do
-              SubscriberHandler.new_topic(topic)
-            end
-
-            SubscriberHandler.update_topic_pids(topic, pid)
-
-            Logger.info("Subscriber [#{inspect(pid)}] subscribed to topic [#{topic}]")
-            Logger.info("#{inspect(SubscriberHandler.get_topics())}")
-
+            Subscriber.subscribe_new_topic(pid, data)
             {:noreply, state}
         end
 

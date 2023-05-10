@@ -3,7 +3,7 @@ defmodule Connection do
   use GenServer
 
   def start(port) do
-    GenServer.start(__MODULE__, %{socket: nil, port: port})
+    GenServer.start(__MODULE__, %{socket: nil, port: port, client_type: nil})
   end
 
   def init(%{socket: _, port: port}) do
@@ -20,7 +20,7 @@ defmodule Connection do
     {:noreply, state}
   end
 
-  def handle_info({:tcp, socket, data_received}, state) do
+  def handle_info({:tcp, socket, data_received}, %{client_type: client} = state) do
     Logger.info("Received #{data_received}")
 
     [first_token | data] =
@@ -30,6 +30,11 @@ defmodule Connection do
     Logger.info(data)
 
     case first_token do
+      "new" ->
+        client_type =
+          data
+          |> Enum.join("")
+
       "send" ->
         Logger.debug("-- TRYING TO SEND A MESSAGE --")
 
@@ -57,12 +62,11 @@ defmodule Connection do
 
         topics_map = SubscriberHandler.get_topics()
 
-        if !Map.has_key?(topics_map, topic),
-          do: SubscriberHandler.new_topic(topic)
-
-        {:ok, pid} = Subscriber.start(topic)
-
-        SubscriberHandler.update_topic_pids(topic, pid)
+        if !Map.has_key?(topics_map, topic) do
+          {:ok, pid} = Subscriber.start()
+          SubscriberHandler.new_topic(topic)
+          SubscriberHandler.update_topic_pids(topic, pid)
+        end
 
       "quit" ->
         Logger.debug("some quit command")

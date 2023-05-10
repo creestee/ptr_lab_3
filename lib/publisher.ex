@@ -2,13 +2,14 @@ defmodule Publisher do
   require Logger
   use GenServer
 
-  def init(%{name: publisher_name, topic_target: topic}) do
-    {:ok, %{name: publisher_name, topic_target: topic}}
+  @impl true
+  def init(_init_args) do
+    {:ok, %{topic_target: nil}}
   end
 
-  def start(name, topic) do
-    {:ok, pid} = GenServer.start_link(__MODULE__, %{name: name, topic_target: topic})
-    Logger.info("Starting Publisher with name - #{name} - ")
+  def start() do
+    {:ok, pid} = GenServer.start_link(__MODULE__, :ok)
+    Logger.info("Starting new Publisher")
     {:ok, pid}
   end
 end

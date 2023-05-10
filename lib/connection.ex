@@ -32,53 +32,19 @@ defmodule Connection do
 
     case first_token do
       "new" ->
-        client_type =
-          data
-          |> Enum.join("")
-
-        {client, client_pid} = handle_new_actor(client_type)
-
-        {:noreply, Map.put(state, :client_type, {client, client_pid})}
+        handle_new(data, state)
 
       "send" ->
-        {client, pid} = Map.get(state, :client_type)
-
-        cond do
-          client !== :publisher ->
-            Logger.info("NOT A PUBLISHER")
-            :gen_tcp.send(socket, "YOU ARE NOT A PUBLISHER\r\n")
-            {:noreply, state}
-
-          true ->
-            Publisher.send_to_topic(pid, data)
-            {:noreply, state}
-        end
+        handle_send(socket, data, state)
 
       "subscribe" ->
-        {client, pid} = Map.get(state, :client_type)
-
-        cond do
-          client !== :subscriber ->
-            Logger.info("NOT A SUBSCRIBER")
-            :gen_tcp.send(socket, "YOU ARE NOT A SUBSCRIBER\r\n")
-            {:noreply, state}
-
-          # TODO: add condition to check if the topic exists
-
-          true ->
-            Subscriber.subscribe_new_topic(pid, data)
-            {:noreply, state}
-        end
+        handle_subscribe(socket, data, state)
 
       "quit" ->
-        Logger.debug("some quit command")
-        :gen_tcp.send(socket, "#{data_received}\r\n")
-        Process.exit(self(), :kill)
+        handle_quit()
 
       _ ->
-        Logger.debug("Unknown command: #{inspect(data)}")
-        :gen_tcp.send(socket, "unknown command\r\n")
-        {:noreply, state}
+        handle_unknown(socket, data_received, state)
     end
   end
 
@@ -94,11 +60,6 @@ defmodule Connection do
     {:stop, :normal, state}
   end
 
-  @impl true
-  def handle_call(:show_state, _from, state) do
-    {:reply, state, state}
-  end
-
   defp handle_new_actor("publisher") do
     {:ok, publisher_pid} = Publisher.start()
     {:publisher, publisher_pid}
@@ -109,7 +70,43 @@ defmodule Connection do
     {:subscriber, subscriber_pid}
   end
 
-  def show_state(port) do
-    GenServer.call(:"connection_#{port}", :show_state)
+  defp handle_new(data, state) do
+    client_type = Enum.join(data)
+    {client, client_pid} = handle_new_actor(client_type)
+    {:noreply, Map.put(state, :client_type, {client, client_pid})}
+  end
+
+  defp handle_send(_socket, data, state = %{client_type: {:publisher, pid}}) do
+    Publisher.send_to_topic(pid, data)
+    {:noreply, state}
+  end
+
+  defp handle_send(socket, _data, state) do
+    Logger.info("NOT A PUBLISHER")
+    :gen_tcp.send(socket, "YOU ARE NOT A PUBLISHER\r\n")
+    {:noreply, state}
+  end
+
+  defp handle_subscribe(_socket, data, state = %{client_type: {:subscriber, pid}}) do
+    # TODO: add condition to check if the topic exists
+    Subscriber.subscribe_new_topic(pid, data)
+    {:noreply, state}
+  end
+
+  defp handle_subscribe(socket, _data, state) do
+    Logger.info("NOT A SUBSCRIBER")
+    :gen_tcp.send(socket, "YOU ARE NOT A SUBSCRIBER\r\n")
+    {:noreply, state}
+  end
+
+  defp handle_quit() do
+    Logger.debug("QUIT!!!")
+    Process.exit(self(), :kill)
+  end
+
+  defp handle_unknown(socket, data, state) do
+    Logger.debug("Unknown command: #{inspect(data)}")
+    :gen_tcp.send(socket, "unknown command\r\n")
+    {:noreply, state}
   end
 end

@@ -28,9 +28,7 @@ defmodule Subscriber do
 
     topics_map = SubscriberHandler.get_topics()
 
-    if !Map.has_key?(topics_map, topic) do
-      SubscriberHandler.new_topic(topic)
-    end
+    if !Map.has_key?(topics_map, topic), do: SubscriberHandler.new_topic(topic)
 
     SubscriberHandler.update_topic_pids(topic, self())
 

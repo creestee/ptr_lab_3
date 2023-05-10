@@ -3,7 +3,9 @@ defmodule Connection do
   use GenServer
 
   def start(port) do
-    GenServer.start(__MODULE__, %{socket: nil, port: port, client_type: nil}, name: :connection)
+    GenServer.start(__MODULE__, %{socket: nil, port: port, client_type: {nil, nil}},
+      name: :"connection_#{port}"
+    )
   end
 
   @impl true
@@ -30,9 +32,6 @@ defmodule Connection do
       String.trim(data_received)
       |> String.split(" ")
 
-    Logger.debug(data)
-    Logger.debug(first_token)
-
     case first_token do
       "new" ->
         client_type =
@@ -51,8 +50,6 @@ defmodule Connection do
           :gen_tcp.send(socket, "YOU ARE NOT A PUBLISHER\r\n")
           {:noreply, state}
         else
-          Logger.debug("-- TRYING TO SEND A MESSAGE --")
-
           [topic, message] =
             data
             |> Enum.join("")
@@ -71,22 +68,31 @@ defmodule Connection do
         end
 
       "subscribe" ->
-        Logger.debug("-- CONSUMING --")
+        {role, pid} = Map.get(state, :client_type)
 
-        topic =
-          data
-          |> Enum.join("")
-          |> String.to_atom()
+        if role !== :subscriber do
+          Logger.info("NOT A SUBSCRIBER")
+          :gen_tcp.send(socket, "YOU ARE NOT A SUBSCRIBER\r\n")
+          {:noreply, state}
+        else
+          topic =
+            data
+            |> Enum.join("")
+            |> String.to_atom()
 
-        topics_map = SubscriberHandler.get_topics()
+          topics_map = SubscriberHandler.get_topics()
 
-        if !Map.has_key?(topics_map, topic) do
-          {:ok, pid} = Subscriber.start()
-          SubscriberHandler.new_topic(topic)
+          if !Map.has_key?(topics_map, topic) do
+            SubscriberHandler.new_topic(topic)
+          end
+
           SubscriberHandler.update_topic_pids(topic, pid)
-        end
+          Logger.info("Publisher [#{inspect pid}] subscribed to topic [#{topic}]")
 
-        {:noreply, state}
+          Logger.info("#{inspect SubscriberHandler.get_topics()}")
+
+          {:noreply, state}
+        end
 
       "quit" ->
         Logger.debug("some quit command")
@@ -127,7 +133,7 @@ defmodule Connection do
     {:subscriber, subscriber_pid}
   end
 
-  def show_state() do
-    GenServer.call(:connection, :show_state)
+  def show_state(port) do
+    GenServer.call(:"connection_#{port}", :show_state)
   end
 end

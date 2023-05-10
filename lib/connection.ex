@@ -26,7 +26,7 @@ defmodule Connection do
 
   @impl true
   def handle_info({:tcp, socket, data_received}, state) do
-    Logger.info("Received #{data_received}")
+    # Logger.info("Received #{data_received}")
 
     [first_token | data] =
       String.trim(data_received)
@@ -70,28 +70,32 @@ defmodule Connection do
       "subscribe" ->
         {role, pid} = Map.get(state, :client_type)
 
-        if role !== :subscriber do
-          Logger.info("NOT A SUBSCRIBER")
-          :gen_tcp.send(socket, "YOU ARE NOT A SUBSCRIBER\r\n")
-          {:noreply, state}
-        else
-          topic =
-            data
-            |> Enum.join("")
-            |> String.to_atom()
+        topic =
+          data
+          |> Enum.join("")
+          |> String.to_atom()
 
-          topics_map = SubscriberHandler.get_topics()
+        cond do
+          role !== :subscriber ->
+            Logger.info("NOT A SUBSCRIBER")
+            :gen_tcp.send(socket, "YOU ARE NOT A SUBSCRIBER\r\n")
+            {:noreply, state}
 
-          if !Map.has_key?(topics_map, topic) do
-            SubscriberHandler.new_topic(topic)
-          end
+          # TODO: add condition to check if the topic exists
 
-          SubscriberHandler.update_topic_pids(topic, pid)
-          Logger.info("Publisher [#{inspect pid}] subscribed to topic [#{topic}]")
+          true ->
+            topics_map = SubscriberHandler.get_topics()
 
-          Logger.info("#{inspect SubscriberHandler.get_topics()}")
+            if !Map.has_key?(topics_map, topic) do
+              SubscriberHandler.new_topic(topic)
+            end
 
-          {:noreply, state}
+            SubscriberHandler.update_topic_pids(topic, pid)
+
+            Logger.info("Subscriber [#{inspect(pid)}] subscribed to topic [#{topic}]")
+            Logger.info("#{inspect(SubscriberHandler.get_topics())}")
+
+            {:noreply, state}
         end
 
       "quit" ->

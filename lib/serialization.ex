@@ -2,6 +2,7 @@ defmodule Serialization do
   require Logger
   use GenServer
 
+  @impl true
   def init(_init_args) do
     {:ok, nil}
   end

@@ -9,17 +9,71 @@ defmodule Subscriber do
 
   def start() do
     {:ok, pid} = GenServer.start_link(__MODULE__, :ok)
-    Logger.info("Starting a new Subscriber with pid [#{inspect pid}]")
+    Logger.info("Starting a new Subscriber with pid [#{inspect(pid)}]")
     {:ok, pid}
   end
 
   @impl true
   def handle_cast({:consume, message}, state) do
-    Logger.info("Subscriber [#{inspect self()}] consumed this message : #{message}")
+    Logger.info("Subscriber [#{inspect(self())}] consumed this message : #{message}")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:subscribe_new_topic, data}, state) do
+    topic =
+      data
+      |> Enum.join("")
+      |> String.to_atom()
+
+    case Process.whereis(:"#{topic}") do
+      nil ->
+        Logger.debug("Topic [#{topic}] does not exist")
+        {:noreply, state}
+
+      _ ->
+        topics_map = SubscriberHandler.get_topics()
+
+        if !Map.has_key?(topics_map, topic), do: SubscriberHandler.new_topic(topic)
+
+        SubscriberHandler.update_topic_pids(topic, self())
+
+        {:noreply, state}
+    end
+  end
+
+  @impl true
+  def handle_cast({:unsubscribe, data}, state) do
+    topic =
+      data
+      |> Enum.join("")
+      |> String.to_atom()
+
+    case Process.whereis(:"#{topic}") do
+      nil ->
+        Logger.debug("Topic [#{topic}] does not exist")
+        {:noreply, state}
+
+      _ ->
+        SubscriberHandler.unsubscribe_from_topic(topic, self())
+
+        Logger.info("Subscriber [#{inspect(self())}] unsubscribed to topic [#{topic}]")
+        Logger.info("#{inspect(SubscriberHandler.get_topics())}")
+        {:noreply, state}
+    end
+
     {:noreply, state}
   end
 
   def consume_from_topic(subscriber_pid, message) do
     GenServer.cast(subscriber_pid, {:consume, message})
+  end
+
+  def subscribe_new_topic(subscriber_pid, data) do
+    GenServer.cast(subscriber_pid, {:subscribe_new_topic, data})
+  end
+
+  def unsubscribe(subscriber_pid, data) do
+    GenServer.cast(subscriber_pid, {:unsubscribe, data})
   end
 end

@@ -26,87 +26,28 @@ defmodule Connection do
 
   @impl true
   def handle_info({:tcp, socket, data_received}, state) do
-    # Logger.info("Received #{data_received}")
-
     [first_token | data] =
       String.trim(data_received)
       |> String.split(" ")
 
     case first_token do
       "new" ->
-        client_type =
-          data
-          |> Enum.join("")
-
-        {role, role_pid} = handle_new_actor(client_type)
-
-        {:noreply, Map.put(state, :client_type, {role, role_pid})}
+        handle_new(data, state)
 
       "send" ->
-        {role, _} = Map.get(state, :client_type)
-
-        if role !== :publisher do
-          Logger.info("NOT A PUBLISHER")
-          :gen_tcp.send(socket, "YOU ARE NOT A PUBLISHER\r\n")
-          {:noreply, state}
-        else
-          [topic, message] =
-            data
-            |> Enum.join("")
-            |> String.split("%")
-
-          cond do
-            is_nil(Process.whereis(:"#{topic}")) ->
-              Topic.start(topic)
-              Topic.send_message(message, topic)
-
-            true ->
-              Topic.send_message(message, topic)
-          end
-
-          {:noreply, state}
-        end
+        handle_send(socket, data, state)
 
       "subscribe" ->
-        {role, pid} = Map.get(state, :client_type)
+        handle_subscribe(socket, data, state)
 
-        topic =
-          data
-          |> Enum.join("")
-          |> String.to_atom()
-
-        cond do
-          role !== :subscriber ->
-            Logger.info("NOT A SUBSCRIBER")
-            :gen_tcp.send(socket, "YOU ARE NOT A SUBSCRIBER\r\n")
-            {:noreply, state}
-
-          # TODO: add condition to check if the topic exists
-
-          true ->
-            topics_map = SubscriberHandler.get_topics()
-
-            if !Map.has_key?(topics_map, topic) do
-              SubscriberHandler.new_topic(topic)
-            end
-
-            SubscriberHandler.update_topic_pids(topic, pid)
-
-            Logger.info("Subscriber [#{inspect(pid)}] subscribed to topic [#{topic}]")
-            Logger.info("#{inspect(SubscriberHandler.get_topics())}")
-
-            {:noreply, state}
-        end
+      "unsubscribe" ->
+        handle_unsubscribe(socket, data, state)
 
       "quit" ->
-        Logger.debug("some quit command")
-        :gen_tcp.send(socket, "#{data_received}\r\n")
-        Process.exit(self(), :kill)
+        handle_quit()
 
       _ ->
-        Logger.debug("Unknown command: #{inspect(data)}")
-        :gen_tcp.send(socket, "unknown command\r\n")
-        {:noreply, state}
+        handle_unknown(socket, data_received, state)
     end
   end
 
@@ -122,11 +63,6 @@ defmodule Connection do
     {:stop, :normal, state}
   end
 
-  @impl true
-  def handle_call(:show_state, _from, state) do
-    {:reply, state, state}
-  end
-
   defp handle_new_actor("publisher") do
     {:ok, publisher_pid} = Publisher.start()
     {:publisher, publisher_pid}
@@ -137,7 +73,53 @@ defmodule Connection do
     {:subscriber, subscriber_pid}
   end
 
-  def show_state(port) do
-    GenServer.call(:"connection_#{port}", :show_state)
+  defp handle_new(data, state) do
+    client_type = Enum.join(data)
+    {client, client_pid} = handle_new_actor(client_type)
+    {:noreply, Map.put(state, :client_type, {client, client_pid})}
+  end
+
+  defp handle_send(_socket, data, state = %{client_type: {:publisher, pid}}) do
+    Publisher.send_to_topic(pid, data)
+    {:noreply, state}
+  end
+
+  defp handle_send(socket, _data, state) do
+    Logger.info("NOT A PUBLISHER")
+    :gen_tcp.send(socket, "YOU ARE NOT A PUBLISHER\r\n")
+    {:noreply, state}
+  end
+
+  defp handle_subscribe(_socket, data, state = %{client_type: {:subscriber, pid}}) do
+    Subscriber.subscribe_new_topic(pid, data)
+    {:noreply, state}
+  end
+
+  defp handle_subscribe(socket, _data, state) do
+    Logger.info("NOT A SUBSCRIBER")
+    :gen_tcp.send(socket, "YOU ARE NOT A SUBSCRIBER\r\n")
+    {:noreply, state}
+  end
+
+  defp handle_unsubscribe(_socket, data, state = %{client_type: {:subscriber, pid}}) do
+    Subscriber.unsubscribe(pid, data)
+    {:noreply, state}
+  end
+
+  defp handle_unsubscribe(socket, _data, state) do
+    Logger.info("NOT A SUBSCRIBER")
+    :gen_tcp.send(socket, "YOU ARE NOT A SUBSCRIBER\r\n")
+    {:noreply, state}
+  end
+
+  defp handle_quit() do
+    Logger.debug("QUIT!!!")
+    Process.exit(self(), :kill)
+  end
+
+  defp handle_unknown(socket, data, state) do
+    Logger.debug("Unknown command: #{inspect(data)}")
+    :gen_tcp.send(socket, "unknown command\r\n")
+    {:noreply, state}
   end
 end

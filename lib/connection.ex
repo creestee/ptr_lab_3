@@ -40,6 +40,9 @@ defmodule Connection do
       "subscribe" ->
         handle_subscribe(socket, data, state)
 
+      "unsubscribe" ->
+        handle_unsubscribe(socket, data, state)
+
       "quit" ->
         handle_quit()
 
@@ -88,12 +91,22 @@ defmodule Connection do
   end
 
   defp handle_subscribe(_socket, data, state = %{client_type: {:subscriber, pid}}) do
-    # TODO: add condition to check if the topic exists
     Subscriber.subscribe_new_topic(pid, data)
     {:noreply, state}
   end
 
   defp handle_subscribe(socket, _data, state) do
+    Logger.info("NOT A SUBSCRIBER")
+    :gen_tcp.send(socket, "YOU ARE NOT A SUBSCRIBER\r\n")
+    {:noreply, state}
+  end
+
+  defp handle_unsubscribe(_socket, data, state = %{client_type: {:subscriber, pid}}) do
+    Subscriber.unsubscribe(pid, data)
+    {:noreply, state}
+  end
+
+  defp handle_unsubscribe(socket, _data, state) do
     Logger.info("NOT A SUBSCRIBER")
     :gen_tcp.send(socket, "YOU ARE NOT A SUBSCRIBER\r\n")
     {:noreply, state}

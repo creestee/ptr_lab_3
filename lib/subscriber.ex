@@ -26,14 +26,41 @@ defmodule Subscriber do
       |> Enum.join("")
       |> String.to_atom()
 
-    topics_map = SubscriberHandler.get_topics()
+    case Process.whereis(:"#{topic}") do
+      nil ->
+        Logger.debug("Topic [#{topic}] does not exist")
+        {:noreply, state}
 
-    if !Map.has_key?(topics_map, topic), do: SubscriberHandler.new_topic(topic)
+      _ ->
+        topics_map = SubscriberHandler.get_topics()
 
-    SubscriberHandler.update_topic_pids(topic, self())
+        if !Map.has_key?(topics_map, topic), do: SubscriberHandler.new_topic(topic)
 
-    Logger.info("Subscriber [#{inspect(self())}] subscribed to topic [#{topic}]")
-    Logger.info("#{inspect(SubscriberHandler.get_topics())}")
+        SubscriberHandler.update_topic_pids(topic, self())
+
+        {:noreply, state}
+    end
+  end
+
+  @impl true
+  def handle_cast({:unsubscribe, data}, state) do
+    topic =
+      data
+      |> Enum.join("")
+      |> String.to_atom()
+
+    case Process.whereis(:"#{topic}") do
+      nil ->
+        Logger.debug("Topic [#{topic}] does not exist")
+        {:noreply, state}
+
+      _ ->
+        SubscriberHandler.unsubscribe_from_topic(topic, self())
+
+        Logger.info("Subscriber [#{inspect(self())}] unsubscribed to topic [#{topic}]")
+        Logger.info("#{inspect(SubscriberHandler.get_topics())}")
+        {:noreply, state}
+    end
 
     {:noreply, state}
   end
@@ -44,5 +71,9 @@ defmodule Subscriber do
 
   def subscribe_new_topic(subscriber_pid, data) do
     GenServer.cast(subscriber_pid, {:subscribe_new_topic, data})
+  end
+
+  def unsubscribe(subscriber_pid, data) do
+    GenServer.cast(subscriber_pid, {:unsubscribe, data})
   end
 end

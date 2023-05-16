@@ -32,7 +32,7 @@ defmodule Connection do
 
     case first_token do
       "new" ->
-        handle_new(data, state)
+        handle_new(socket, data, state)
 
       "send" ->
         handle_send(socket, data, state)
@@ -63,19 +63,20 @@ defmodule Connection do
     {:stop, :normal, state}
   end
 
-  defp handle_new_actor("publisher") do
-    {:ok, publisher_pid} = Publisher.start()
+  defp handle_new_actor(socket, "publisher") do
+    {:ok, publisher_pid} = Publisher.Supervisor.new_publisher(socket)
     {:publisher, publisher_pid}
   end
 
-  defp handle_new_actor("subscriber") do
+  defp handle_new_actor(socket, "subscriber") do
     {:ok, subscriber_pid} = Subscriber.start()
+    GenServer.cast(subscriber_pid, {:get_connection_pid, socket})
     {:subscriber, subscriber_pid}
   end
 
-  defp handle_new(data, state) do
+  defp handle_new(socket, data, state) do
     client_type = Enum.join(data)
-    {client, client_pid} = handle_new_actor(client_type)
+    {client, client_pid} = handle_new_actor(socket, client_type)
     {:noreply, Map.put(state, :client_type, {client, client_pid})}
   end
 
@@ -86,7 +87,7 @@ defmodule Connection do
 
   defp handle_send(socket, _data, state) do
     Logger.info("NOT A PUBLISHER")
-    :gen_tcp.send(socket, "YOU ARE NOT A PUBLISHER\r\n")
+    :gen_tcp.send(socket, "[WARNING] There is no publisher role\r\n")
     {:noreply, state}
   end
 
@@ -97,7 +98,7 @@ defmodule Connection do
 
   defp handle_subscribe(socket, _data, state) do
     Logger.info("NOT A SUBSCRIBER")
-    :gen_tcp.send(socket, "YOU ARE NOT A SUBSCRIBER\r\n")
+    :gen_tcp.send(socket, "[WARNING] There is no subscriber role\r\n")
     {:noreply, state}
   end
 
@@ -108,7 +109,7 @@ defmodule Connection do
 
   defp handle_unsubscribe(socket, _data, state) do
     Logger.info("NOT A SUBSCRIBER")
-    :gen_tcp.send(socket, "YOU ARE NOT A SUBSCRIBER\r\n")
+    :gen_tcp.send(socket, "[WARNING] There is no subscriber role\r\n")
     {:noreply, state}
   end
 
@@ -119,7 +120,7 @@ defmodule Connection do
 
   defp handle_unknown(socket, data, state) do
     Logger.debug("Unknown command: #{inspect(data)}")
-    :gen_tcp.send(socket, "unknown command\r\n")
+    :gen_tcp.send(socket, "[WARNING] Unknown command\r\n")
     {:noreply, state}
   end
 end

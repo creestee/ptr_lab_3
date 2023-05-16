@@ -4,7 +4,7 @@ defmodule Subscriber do
 
   @impl true
   def init(_args) do
-    {:ok, nil}
+    {:ok, %{}}
   end
 
   def start() do
@@ -16,6 +16,9 @@ defmodule Subscriber do
   @impl true
   def handle_cast({:consume, message}, state) do
     Logger.info("Subscriber [#{inspect(self())}] consumed this message : #{message}")
+    :gen_tcp.send(state.socket, "-----------------------------------\r\n")
+    :gen_tcp.send(state.socket, "Message consumed : #{message}\r\n");
+    :gen_tcp.send(state.socket, "-----------------------------------\r\n")
     {:noreply, state}
   end
 
@@ -29,6 +32,7 @@ defmodule Subscriber do
     case Process.whereis(:"#{topic}") do
       nil ->
         Logger.debug("Topic [#{topic}] does not exist")
+        :gen_tcp.send(state.socket, "[WARNING] Topic [#{topic}] does not exist!\r\n");
         {:noreply, state}
 
       _ ->
@@ -52,6 +56,7 @@ defmodule Subscriber do
     case Process.whereis(:"#{topic}") do
       nil ->
         Logger.debug("Topic [#{topic}] does not exist")
+        :gen_tcp.send(state.socket, "[WARNING] Topic [#{topic}] does not exist!\r\n");
         {:noreply, state}
 
       _ ->
@@ -63,6 +68,11 @@ defmodule Subscriber do
     end
 
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:get_connection_pid, socket}, state) do
+    {:noreply, Map.put(state, :socket, socket)}
   end
 
   def consume_from_topic(subscriber_pid, message) do
